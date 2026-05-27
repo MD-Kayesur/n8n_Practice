@@ -13,7 +13,7 @@ app.use(express.json());
 // Health check route
 app.get("/", (req, res) => {
     res.json({
-        status: "OK",
+        status: "Success",
         message: "n8n AI Backend Running 🚀"
     });
 });
