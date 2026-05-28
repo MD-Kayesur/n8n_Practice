@@ -2,15 +2,18 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const axios = require("axios");
 
 const app = express();
 
+// =======================
 // Middleware
+// =======================
 app.use(cors());
 app.use(express.json());
 
-// Health check route
+// =======================
+// Health Check Route
+// =======================
 app.get("/", (req, res) => {
     res.json({
         status: "Success",
@@ -18,71 +21,182 @@ app.get("/", (req, res) => {
     });
 });
 
-
-// MAIN CHAT ROUTE (used by n8n or Telegram)
+// =======================
+// MAIN CHAT ROUTE
+// =======================
 app.post("/chat", async (req, res) => {
     try {
         const { message, userId } = req.body;
 
-        if (!message) {
+        if (!message || typeof message !== "string") {
             return res.status(400).json({
                 success: false,
-                error: "Message is required"
+                error: "Message is required and must be a string"
             });
         }
 
-        // Simple AI logic (you can upgrade later)
         const reply = await generateReply(message);
 
         return res.json({
             success: true,
             reply,
-            userId: userId || null
+            userId: userId || null,
+            timestamp: new Date().toISOString()
         });
 
     } catch (error) {
         console.error("Chat Error:", error.message);
-
         return res.status(500).json({
             success: false,
-            reply: "Server error. Try again later."
+            reply: "Sorry, I'm having trouble responding right now. Please try again later."
         });
     }
 });
 
-
-// ===============================
-// AI LOGIC FUNCTION
-// ===============================
+// =======================
+// ADVANCED AI LOGIC FUNCTION
+// =======================
 async function generateReply(message) {
+    const msg = message.toLowerCase().trim();
 
-    const msg = message.toLowerCase();
+    // =======================
+    // INTENTS DATABASE (Greatly Expanded)
+    // =======================
+    const intents = [
 
-    // 1. Simple keyword routing (your current style)
-    if (msg.includes("who are you")) {
-        return "I am an AI assistant built by MD Kayesur 🚀";
+        // 1. GREETINGS
+        {
+            keywords: ["hi", "hello", "hey", "how are you", "good morning", "good evening", "good night", "assalamu alaikum", "salam", "yo", "what's up", "sup", "hola", "hey there", "hi bot", "hello bot", "are you there", "wassup", "greetings", "nice to meet you", "morning", "evening", "night"],
+            responses: [
+                "Hello 👋 How can I help you today?",
+                "Hey there 🚀 Nice to meet you!",
+                "Hi 😊 What can I do for you?",
+                "Hello 💻 Ready to help!",
+                "Hey 👋 Hope you're having a great day!",
+                "Assalamu Alaikum! How can I assist you today? 😊",
+                "Greetings friend! What are we building today? ⚡"
+            ]
+        },
+
+        // 2. CREATOR / DEVELOPER
+        {
+            keywords: ["creator", "who made you", "who built you", "your developer", "who created you", "developer", "owner", "who owns you", "your owner", "your maker", "kayesur", "md kayesur", "kayesur rahman"],
+            responses: [
+                "My creator is MD Kayesur 🚀",
+                "I was developed by MD Kayesur 💻",
+                "MD Kayesur created me 🤖",
+                "I'm built by a talented Full-Stack Developer named MD Kayesur ⚡",
+                "MD Kayesur is my developer and owner. He loves building AI and automation systems!"
+            ]
+        },
+
+        // 3. PROJECTS & SERVICES
+        {
+            keywords: ["project", "projects", "website", "chatbot", "ai bot", "automation", "portfolio", "fullstack", "react", "nextjs", "express", "mongodb", "nodejs", "frontend", "backend", "api", "software", "application", "web app", "mobile app", "telegram bot", "n8n", "workflow"],
+            responses: [
+                "I can help you build AI bots, websites, and automation systems 🚀",
+                "I specialize in full-stack web development with React, Next.js, Node.js, and MongoDB 💻",
+                "I can create intelligent chatbots and powerful automation workflows ⚡",
+                "I have strong experience in building modern web applications and APIs",
+                "Would you like help with a new project? I can assist from idea to deployment!"
+            ]
+        },
+
+        // 4. THANK YOU
+        {
+            keywords: ["thank", "thanks", "thank you", "shukriya", "dhonnobad"],
+            responses: [
+                "You're most welcome! 😊",
+                "Happy to help! 🚀",
+                "My pleasure!",
+                "Anytime! Let me know if you need more help."
+            ]
+        },
+
+        // 5. GOODBYE
+        {
+            keywords: ["bye", "goodbye", "see you", "take care", "later", "good night"],
+            responses: [
+                "Goodbye! Have a great day! 👋",
+                "See you later! Stay awesome 🚀",
+                "Take care! Come back anytime 😊",
+                "Bye! I'm always here when you need me."
+            ]
+        },
+
+        // 6. WHAT CAN YOU DO / CAPABILITIES
+        {
+            keywords: ["what can you do", "your capabilities", "help me with", "what do you know", "features"],
+            responses: [
+                "I can help you with chatbots, web development, automation, and answer general questions 🚀",
+                "I'm good at coding help, project ideas, and casual conversation 💻",
+                "I can assist you in building AI systems, websites, and much more!"
+            ]
+        },
+
+        // 7. HOW ARE YOU
+        {
+            keywords: ["how are you", "how r u", "how r you"],
+            responses: [
+                "I'm doing great, thank you for asking! 🚀 How about you?",
+                "I'm running at full power and ready to help! ⚡",
+                "Fantastic! Thanks for checking on me 😊"
+            ]
+        },
+
+        // 8. JOKES
+        {
+            keywords: ["joke", "tell me a joke", "make me laugh", "funny"],
+            responses: [
+                "Why do programmers prefer dark mode? Because light attracts bugs! 😆",
+                "Why did the developer go broke? Because he used up all his cache! 😂",
+                "I'm not lazy, I'm just in energy-saving mode like most developers! ⚡"
+            ]
+        },
+
+        // 9. ABOUT AI
+        {
+            keywords: ["who are you", "what are you", "tell me about yourself", "are you ai", "artificial intelligence"],
+            responses: [
+                "I am an AI assistant created by MD Kayesur to help with development and automation 🤖",
+                "I'm a smart AI chatbot built to make your life easier 🚀",
+                "I'm an intelligent assistant powered by logic and a lot of love from my creator!"
+            ]
+        },
+
+        // 10. DEFAULT / FALLBACK
+        // (This will be used if no intent matches)
+    ];
+
+    // Match intent
+    for (const intent of intents) {
+        if (intent.keywords.some(keyword => msg.includes(keyword))) {
+            const randomIndex = Math.floor(Math.random() * intent.responses.length);
+            return intent.responses[randomIndex];
+        }
     }
 
-    if (msg.includes("creator")) {
-        return "My creator is MD Kayesur. He is a Full-Stack Developer 💻";
-    }
+    // =======================
+    // DEFAULT FALLBACK RESPONSES (Very Natural)
+    // =======================
+    const defaultResponses = [
+        `I understood: "${message}". That's interesting! How can I help you more? 🚀`,
+        "Thanks for your message! I'm still learning but I'm getting better every day. What would you like to know? 😊",
+        "Got it! I'm here to help with development, automation, or just chat. Tell me more! 💻",
+        "Interesting point! How else can I assist you today?",
+        "I'm not 100% sure about that yet, but I'm happy to help with coding, projects, or ideas! What do you need?"
+    ];
 
-    if (msg.includes("hello") || msg.includes("hi")) {
-        return "Hello 👋 How can I help you today?";
-    }
-
-    if (msg.includes("project")) {
-        return "I can help you build AI bots, websites, and automation systems 🚀";
-    }
-
-    // 2. Default response (AI fallback style)
-    return `I understood: "${message}". I am still learning 🚀`;
+    const randomDefault = Math.floor(Math.random() * defaultResponses.length);
+    return defaultResponses[randomDefault];
 }
 
-
-// Start server
+// =======================
+// Start Server
+// =======================
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📡 Health check: http://localhost:${PORT}/`);
 });
