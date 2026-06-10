@@ -7,11 +7,16 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 
+// Helper checks to check if API keys are valid (non-empty)
+const hasGemini = () => !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
+const hasClaude = () => !!((process.env.CLAUDE_API_KEY && process.env.CLAUDE_API_KEY.trim() !== "") || (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim() !== ""));
+const hasGrok = () => !!((process.env.GROK_API_KEY && process.env.GROK_API_KEY.trim() !== "") || (process.env.XAI_API_KEY && process.env.XAI_API_KEY.trim() !== ""));
+
 // Log available providers on startup
 const activeProviders = [];
-if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "") activeProviders.push("gemini");
-if (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) activeProviders.push("claude");
-if (process.env.GROK_API_KEY || process.env.XAI_API_KEY) activeProviders.push("grok");
+if (hasGemini()) activeProviders.push("gemini");
+if (hasClaude()) activeProviders.push("claude");
+if (hasGrok()) activeProviders.push("grok");
 
 console.log(`🤖 Available AI Providers: [${activeProviders.length > 0 ? activeProviders.join(", ") : "none (rule-based fallback only)"}]`);
 
@@ -135,11 +140,11 @@ async function generateReply(message) {
     
     // Auto-detect provider if none is explicitly set
     if (!provider) {
-        if (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) {
+        if (hasClaude()) {
             provider = "claude";
-        } else if (process.env.GROK_API_KEY || process.env.XAI_API_KEY) {
+        } else if (hasGrok()) {
             provider = "grok";
-        } else if (process.env.GEMINI_API_KEY) {
+        } else if (hasGemini()) {
             provider = "gemini";
         }
     }
