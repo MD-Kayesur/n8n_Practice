@@ -2,8 +2,81 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
+
+// Log available providers on startup
+const activeProviders = [];
+if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "") activeProviders.push("gemini");
+if (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) activeProviders.push("claude");
+if (process.env.GROK_API_KEY || process.env.XAI_API_KEY) activeProviders.push("grok");
+
+console.log(`🤖 Available AI Providers: [${activeProviders.length > 0 ? activeProviders.join(", ") : "none (rule-based fallback only)"}]`);
+
+// =======================
+// PROVIDER UTILITIES
+// =======================
+
+async function askGemini(message) {
+    if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set");
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+    const model = genAI.getGenerativeModel({ model: modelName });
+    
+    const result = await model.generateContent(message);
+    const response = await result.response;
+    const text = response.text();
+    if (!text || text.trim() === "") throw new Error("Gemini returned empty response");
+    return text;
+}
+
+async function askClaude(message) {
+    const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("CLAUDE_API_KEY or ANTHROPIC_API_KEY is not set");
+    
+    const modelName = process.env.CLAUDE_MODEL || "claude-3-5-sonnet-20241022";
+    
+    const response = await axios.post("https://api.anthropic.com/v1/messages", {
+        model: modelName,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: message }]
+    }, {
+        headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+    });
+    
+    if (response.data && response.data.content && response.data.content[0]) {
+        return response.data.content[0].text;
+    }
+    throw new Error("Claude returned invalid response structure");
+}
+
+async function askGrok(message) {
+    const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
+    if (!apiKey) throw new Error("GROK_API_KEY or XAI_API_KEY is not set");
+    
+    const modelName = process.env.GROK_MODEL || "grok-beta";
+    
+    const response = await axios.post("https://api.x.ai/v1/chat/completions", {
+        model: modelName,
+        messages: [{ role: "user", content: message }]
+    }, {
+        headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+        }
+    });
+    
+    if (response.data && response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+        return response.data.choices[0].message.content;
+    }
+    throw new Error("Grok returned invalid response structure");
+}
 
 // =======================
 // Middleware
@@ -57,6 +130,43 @@ app.post("/chat", async (req, res) => {
 // ADVANCED AI LOGIC FUNCTION
 // =======================
 async function generateReply(message) {
+    // 1. Determine which provider to use
+    let provider = (process.env.AI_PROVIDER || "").toLowerCase().trim();
+    
+    // Auto-detect provider if none is explicitly set
+    if (!provider) {
+        if (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) {
+            provider = "claude";
+        } else if (process.env.GROK_API_KEY || process.env.XAI_API_KEY) {
+            provider = "grok";
+        } else if (process.env.GEMINI_API_KEY) {
+            provider = "gemini";
+        }
+    }
+    
+    // 2. Query the selected provider
+    if (provider === "claude") {
+        try {
+            return await askClaude(message);
+        } catch (error) {
+            console.error("❌ Claude API Error, falling back:", error.message);
+        }
+    } else if (provider === "grok") {
+        try {
+            return await askGrok(message);
+        } catch (error) {
+            console.error("❌ Grok API Error, falling back:", error.message);
+        }
+    } else if (provider === "gemini") {
+        try {
+            return await askGemini(message);
+        } catch (error) {
+            console.error("❌ Gemini API Error, falling back:", error.message);
+        }
+    } else if (provider) {
+        console.warn(`⚠️ Configured provider "${provider}" has no credentials or is invalid. falling back to local database.`);
+    }
+
     const msg = message.toLowerCase().trim();
 
     // =======================
