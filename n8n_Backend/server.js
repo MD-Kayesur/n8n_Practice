@@ -18,7 +18,10 @@ if (hasGemini()) activeProviders.push("gemini");
 if (hasClaude()) activeProviders.push("claude");
 if (hasGrok()) activeProviders.push("grok");
 
+const n8nConfigured = !!(process.env.N8N_WEBHOOK_URL && process.env.N8N_WEBHOOK_URL.trim() !== "");
+
 console.log(`🤖 Available AI Providers: [${activeProviders.length > 0 ? activeProviders.join(", ") : "none (rule-based fallback only)"}]`);
+console.log(`🔌 n8n Workflow Integration: [${n8nConfigured ? "ENABLED" : "DISABLED"}]`);
 
 // =======================
 // PROVIDER UTILITIES
@@ -83,6 +86,26 @@ async function askGrok(message) {
     throw new Error("Grok returned invalid response structure");
 }
 
+async function askN8N(message, userId) {
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    if (!webhookUrl) throw new Error("N8N_WEBHOOK_URL is not set");
+    
+    const response = await axios.post(webhookUrl, {
+        message,
+        userId: userId || "default_user"
+    });
+    
+    if (response.data) {
+        if (typeof response.data === "string") return response.data;
+        if (response.data.reply) return response.data.reply;
+        if (response.data.response) return response.data.response;
+        if (response.data.text) return response.data.text;
+        if (response.data.output) return response.data.output;
+        return JSON.stringify(response.data);
+    }
+    throw new Error("n8n returned empty response");
+}
+
 // =======================
 // Middleware
 // =======================
@@ -113,7 +136,7 @@ app.post("/chat", async (req, res) => {
             });
         }
 
-        const reply = await generateReply(message);
+        const reply = await generateReply(message, userId);
 
         return res.json({
             success: true,
@@ -134,8 +157,17 @@ app.post("/chat", async (req, res) => {
 // =======================
 // ADVANCED AI LOGIC FUNCTION
 // =======================
-async function generateReply(message) {
-    // 1. Determine which provider to use
+async function generateReply(message, userId) {
+    // 1. Try n8n Workflow first if N8N_WEBHOOK_URL is configured
+    if (process.env.N8N_WEBHOOK_URL && process.env.N8N_WEBHOOK_URL.trim() !== "") {
+        try {
+            return await askN8N(message, userId);
+        } catch (error) {
+            console.error("❌ n8n Webhook Error, falling back to LLM/Rules:", error.message);
+        }
+    }
+
+    // 2. Determine which provider to use
     let provider = (process.env.AI_PROVIDER || "").toLowerCase().trim();
     
     // Auto-detect provider if none is explicitly set
