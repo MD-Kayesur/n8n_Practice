@@ -7,6 +7,46 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 
+// Initialize SQLite database
+const sqlite3 = require("sqlite3").verbose();
+const dbFile = process.env.DATABASE_FILE || "database.sqlite";
+
+const db = new sqlite3.Database(dbFile, (err) => {
+    if (err) {
+        console.error("❌ SQLite database connection error:", err.message);
+    } else {
+        console.log(`📂 SQLite database connected: ${dbFile}`);
+        // Create messages table if it doesn't exist
+        db.run(`
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId TEXT NOT NULL,
+                role TEXT NOT NULL, -- 'user' or 'bot'
+                text TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+    }
+});
+
+// Helper to save message to database
+function saveMessage(userId, role, text) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `INSERT INTO messages (userId, role, text) VALUES (?, ?, ?)`,
+            [userId || "anonymous", role, text],
+            function (err) {
+                if (err) {
+                    console.error("❌ Error saving message:", err.message);
+                    reject(err);
+                } else {
+                    resolve(this.lastID);
+                }
+            }
+        );
+    });
+}
+
 // Helper checks to check if API keys are valid (non-empty)
 const hasGemini = () => !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
 const hasClaude = () => !!((process.env.CLAUDE_API_KEY && process.env.CLAUDE_API_KEY.trim() !== "") || (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim() !== ""));
@@ -123,6 +163,31 @@ app.get("/", (req, res) => {
 });
 
 // =======================
+// Chat History Endpoint
+// =======================
+app.get("/history/:userId", (req, res) => {
+    const { userId } = req.params;
+    db.all(
+        `SELECT role, text, timestamp FROM messages WHERE userId = ? ORDER BY timestamp ASC`,
+        [userId],
+        (err, rows) => {
+            if (err) {
+                console.error("❌ Error fetching history:", err.message);
+                return res.status(500).json({ success: false, error: "Failed to load history" });
+            }
+            res.json({
+                success: true,
+                history: rows.map(r => ({
+                    role: r.role,
+                    text: r.text,
+                    time: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                }))
+            });
+        }
+    );
+});
+
+// =======================
 // MAIN CHAT ROUTE
 // =======================
 app.post("/chat", async (req, res) => {
@@ -136,7 +201,13 @@ app.post("/chat", async (req, res) => {
             });
         }
 
+        // Save the user's incoming message
+        await saveMessage(userId, "user", message);
+
         const reply = await generateReply(message, userId);
+
+        // Save the bot's outgoing reply
+        await saveMessage(userId, "bot", reply);
 
         return res.json({
             success: true,
