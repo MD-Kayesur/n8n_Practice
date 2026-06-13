@@ -146,6 +146,38 @@ async function askN8N(message, userId) {
     throw new Error("n8n returned empty response");
 }
 
+async function sendWhatsAppMessage(to, text) {
+    const apiKey = process.env.WHATSAPP_API_KEY;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    
+    if (!apiKey || !phoneId) {
+        console.error("⚠️ WhatsApp credentials missing. Can't send message.");
+        return;
+    }
+    
+    try {
+        await axios.post(
+            `https://graph.facebook.com/v20.0/${phoneId}/messages`,
+            {
+                messaging_product: "whatsapp",
+                recipient_type: "individual",
+                to: to,
+                type: "text",
+                text: { preview_url: false, body: text }
+            },
+            {
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+        console.log(`✉️ Message sent successfully to WhatsApp user: ${to}`);
+    } catch (error) {
+        console.error("❌ WhatsApp Outbound Send Error:", error.response ? error.response.data : error.message);
+    }
+}
+
 // =======================
 // Middleware
 // =======================
@@ -222,6 +254,67 @@ app.post("/chat", async (req, res) => {
             success: false,
             reply: "Sorry, I'm having trouble responding right now. Please try again later."
         });
+    }
+});
+
+// =======================
+// WhatsApp Webhook Verification Endpoint (GET)
+// =======================
+app.get("/webhook", (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    
+    if (mode === "subscribe" && token === verifyToken) {
+        console.log("✅ WhatsApp Webhook verified successfully!");
+        res.status(200).send(challenge);
+    } else {
+        console.warn("⚠️ Webhook verification failed.");
+        res.sendStatus(403);
+    }
+});
+
+// =======================
+// WhatsApp Webhook Receiver Endpoint (POST)
+// =======================
+app.post("/webhook", async (req, res) => {
+    try {
+        const { body } = req;
+        
+        if (body.object === "whatsapp_business_account") {
+            const entry = body.entry?.[0];
+            const change = entry?.changes?.[0];
+            const value = change?.value;
+            const messageObj = value?.messages?.[0];
+            
+            if (messageObj && messageObj.type === "text") {
+                const fromPhoneNumber = messageObj.from;
+                const messageText = messageObj.text.body;
+                
+                console.log(`📥 Received WhatsApp message from ${fromPhoneNumber}: "${messageText}"`);
+                
+                // Save the user message to database
+                await saveMessage(fromPhoneNumber, "user", messageText);
+                
+                // Process the message through our priority AI/workflow router
+                const reply = await generateReply(messageText, fromPhoneNumber);
+                
+                // Save the bot reply to database
+                await saveMessage(fromPhoneNumber, "bot", reply);
+                
+                // Send response back to user
+                await sendWhatsAppMessage(fromPhoneNumber, reply);
+            }
+            
+            return res.sendStatus(200);
+        }
+        
+        res.sendStatus(404);
+    } catch (error) {
+        console.error("❌ WhatsApp Webhook Processing Error:", error.message);
+        res.sendStatus(500);
     }
 });
 
